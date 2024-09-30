@@ -1,0 +1,72 @@
+{
+    "Automation": {
+        "LEDs": {
+            "LED-1": {
+                "state": 0,
+                "lastUpdated": "2024-09-30T12:00:00Z",
+                "location": "Main Hall"
+            },
+            "LED-2": {
+                "state": 0,
+                "lastUpdated": "2024-09-30T12:00:00Z",
+                "location": "Corridor"
+            },
+            "LED-3": {
+                "state": 0,
+                "lastUpdated": "2024-09-30T12:00:00Z",
+                "location": "Gym Area"
+            },
+            "LED-4": {
+                "state": 0,
+                "lastUpdated": "2024-09-30T12:00:00Z",
+                "location": "Library"
+            }
+        }
+    },
+    "Trash-Bins": {
+        "Canteen": {
+            "Bin-1": {
+                "_id": 1,
+                "distance": 78,
+                "status": "ON",
+                "lastUpdated": "September 30, 2024, 12:00:45 PM",
+                "location": "Main Canteen Area",
+                "binColor": "Green",
+                "geoLocation": "Canteen Area, Main Campus"
+            }
+        },
+        "Gym": {
+            "Bin-1": {
+                "_id": 1,
+                "distance": 55,
+                "status": "ON",
+                "lastUpdated": "September 30, 2024, 12:00:45 PM",
+                "location": "Gym Entrance",
+                "binColor": "Yellow",
+                "geoLocation": "Gym Entrance, Main Campus"
+            }
+        },
+        "Laboratory": {
+            "Bin-1": {
+                "_id": 1,
+                "distance": 55,
+                "status": "ON",
+                "lastUpdated": "September 30, 2024, 12:00:45 PM",
+                "location": "Chemical Lab",
+                "binColor": "Red",
+                "geoLocation": "Chemical Lab, Science Building"
+            }
+        },
+        "Library": {
+            "Bin-1": {
+                "_id": 1,
+                "distance": 10,
+                "status": "OFF",
+                "lastUpdated": "September 30, 2024, 12:00:45 PM",
+                "location": "Library Entrance",
+                "binColor": "Blue",
+                "geoLocation": "Library Entrance, Main Campus"
+            }
+        }
+    }
+}
