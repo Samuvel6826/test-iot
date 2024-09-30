@@ -1,126 +1,127 @@
 const express = require('express');
-const admin = require('firebase-admin'); // Firebase Admin SDK
-const app = express();
-const PORT = process.env.PORT || 3000; // Use the environment variable PORT if defined
-require('dotenv').config();
+const admin = require('firebase-admin');
+const bodyParser = require('body-parser'); // For parsing JSON bodies
+const Joi = require('joi'); // For input validation
+const morgan = require('morgan'); // For logging HTTP requests
+const helmet = require('helmet'); // For securing HTTP headers
+const dotenv = require('dotenv');
 
-// Determine if running locally or in Render
-let serviceAccount;
-try {
-    serviceAccount = process.env.RENDER === 'true'
-        ? '/etc/secrets/serviceAccountKey.json' // Path for Render
-        : process.env.FIREBASE_SERVICE_ACCOUNT_KEY; // Path for local
-} catch (error) {
-    console.error("Error parsing Firebase service account key:", error);
-    process.exit(1); // Exit if there's an error
-}
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
 
 // Initialize Firebase Admin SDK with the service account credentials
+const serviceAccount = process.env.RENDER === 'true'
+    ? '/etc/secrets/serviceAccountKey.json'
+    : process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL // Use the database URL from the environment
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
 });
 
 // Reference to Firebase Realtime Database
 const db = admin.database();
-const sensorDataRef = db.ref('Trash-Bins'); // Keep the reference to Trash-Bins
+const sensorDataRef = db.ref('Trash-Bins');
 
-// Middleware to parse incoming JSON requests
-app.use(express.json());
+// Middleware for security and logging
+app.use(helmet());
+app.use(morgan('combined'));
+app.use(bodyParser.json());
 
-// Endpoint to receive only distance data from MicroPython
-app.post('/sensor-distance', (req, res) => {
-    console.log("Distance Request Body:", req.body); // Log the request body
+// Validation schema for sensor distance data
+const distanceSchema = Joi.object({
+    id: Joi.number().required(),
+    distance: Joi.number().required(),
+    location: Joi.string().required(),
+});
+
+// Validation schema for bin metadata
+const metadataSchema = Joi.object({
+    id: Joi.number().required(),
+    location: Joi.string().required(),
+    binColor: Joi.string().required(),
+    geoLocation: Joi.string().optional().allow(''), // Allow empty string for geoLocation
+});
+
+// Helper function to capitalize the first letter of a string
+const capitalizeFirstLetter = (string) => {
+    return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
+};
+
+// Endpoint to receive distance data from MicroPython
+app.post('/sensor-distance', async (req, res) => {
+    const { error } = distanceSchema.validate(req.body);
+    if (error) {
+        console.error('Validation error:', error.details);
+        return res.status(400).send('Invalid data format or missing required fields');
+    }
+
     const { id, distance, location } = req.body;
+    const capitalizedLocation = capitalizeFirstLetter(location);
+    console.log(`Received distance: ${distance} cm for location: ${capitalizedLocation}`);
 
-    // Check if required data is present
-    if (typeof distance === 'number' && id && location) {
-        console.log(`Received distance: ${distance} cm for location: ${location}`);
+    const binRef = sensorDataRef.child(`${capitalizedLocation}/Bin-${id}`);
+    const now = new Date();
+    const formattedDate = now.toLocaleString();
 
-        // Reference to the specific path for the location under Trash-Bins
-        const binRef = sensorDataRef.child(`${location}/Bin-${id}`); // Dynamic bin name based on id
+    try {
+        const existingDataSnapshot = await binRef.once('value');
+        const existingData = existingDataSnapshot.val() || {};
 
-        // Get the current date and time for lastUpdated
-        const now = new Date();
-        const formattedDate = now.toLocaleString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-            second: 'numeric',
-            hour12: true
-        });
-
-        // Save to Firebase
-        binRef.set({
-            _id: id,
-            distance: distance,
-            status: distance > 50 ? "ON" : "OFF", // Example logic for status
+        const dataToSave = {
+            ...existingData,
+            distance,
+            status: distance > 50 ? "ON" : "OFF",
             lastUpdated: formattedDate,
-            location: location,
-        })
-            .then(() => {
-                console.log('Distance data saved to Firebase:', {
-                    _id: id,
-                    distance: distance,
-                    status: distance > 50 ? "ON" : "OFF",
-                    lastUpdated: formattedDate,
-                    location: location,
-                });
-                res.status(200).send('Distance data received and saved to Firebase');
-            })
-            .catch((error) => {
-                console.error('Error saving distance to Firebase:', error);
-                res.status(500).send('Failed to save distance data to Firebase');
-            });
-    } else {
-        console.error('Invalid data format or missing required fields', req.body);
-        res.status(400).send('Invalid data format or missing required fields');
+            location: capitalizedLocation,
+        };
+
+        await binRef.set(dataToSave);
+        console.log('Distance data saved to Firebase:', dataToSave);
+        res.status(200).send('Distance data received and saved to Firebase');
+    } catch (error) {
+        console.error('Error saving distance to Firebase:', error);
+        res.status(500).send('Failed to save distance data to Firebase');
     }
 });
 
-// Endpoint to receive bin metadata (ID, location, binColor, geoLocation)
+// Endpoint to receive bin metadata
 app.post('/bin-metadata', async (req, res) => {
-    console.log("Metadata Request Body:", req.body); // Log the request body
+    const { error } = metadataSchema.validate(req.body);
+    if (error) {
+        console.error('Validation error:', error.details);
+        return res.status(400).send('Invalid data format or missing required fields');
+    }
+
     const { id, location, binColor, geoLocation } = req.body;
+    const capitalizedLocation = capitalizeFirstLetter(location);
+    console.log(`Received metadata for location: ${capitalizedLocation}`);
 
-    // Check if required data is present
-    if (id && location && binColor && geoLocation) {
-        console.log(`Received metadata for location: ${location}`);
+    const binRef = sensorDataRef.child(`${capitalizedLocation}/Bin-${id}`);
 
-        // Reference to the specific path for the location under Trash-Bins
-        const binRef = sensorDataRef.child(`${location}/Bin-${id}`); // Dynamic bin name based on id
-
-        // Fetch existing distance data to see if it exists
-        const distanceRef = sensorDataRef.child(`${location}/Bin-${id}`);
-        const distanceSnapshot = await distanceRef.once('value');
+    try {
+        // Fetch existing distance data if it exists
+        const distanceSnapshot = await sensorDataRef.child(`${capitalizedLocation}/Bin-${id}`).once('value');
         const distanceData = distanceSnapshot.val();
 
-        // Prepare data to save
         const dataToSave = {
             _id: id,
-            location: location,
-            binColor: binColor,
-            geoLocation: geoLocation,
-            distance: distanceData ? distanceData.distance : 0, // Default value if no distance data
-            status: distanceData ? distanceData.status : "OFF", // Default status if no distance data
-            lastUpdated: distanceData ? distanceData.lastUpdated : null // Preserve last updated if it exists
+            location: capitalizedLocation,
+            binColor,
+            geoLocation: geoLocation || null, // Allow geoLocation to be null if not provided
+            distance: distanceData ? distanceData.distance : 0,
+            status: distanceData ? distanceData.status : "OFF",
+            lastUpdated: distanceData && distanceData.lastUpdated ? distanceData.lastUpdated : new Date().toLocaleString(), // Set current timestamp if lastUpdated is undefined
         };
 
-        // Save to Firebase
-        binRef.set(dataToSave)
-            .then(() => {
-                console.log('Metadata saved to Firebase:', dataToSave);
-                res.status(200).send('Bin metadata received and saved to Firebase');
-            })
-            .catch((error) => {
-                console.error('Error saving metadata to Firebase:', error);
-                res.status(500).send('Failed to save bin metadata to Firebase');
-            });
-    } else {
-        console.error('Invalid data format or missing required fields', req.body);
-        res.status(400).send('Invalid data format or missing required fields');
+        await binRef.set(dataToSave);
+        console.log('Metadata saved to Firebase:', dataToSave);
+        res.status(200).send('Bin metadata received and saved to Firebase');
+    } catch (error) {
+        console.error('Error saving metadata to Firebase:', error);
+        res.status(500).send('Failed to save bin metadata to Firebase');
     }
 });
 
