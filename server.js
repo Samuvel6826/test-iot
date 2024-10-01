@@ -1,131 +1,235 @@
+// Import required modules
 const express = require('express');
 const admin = require('firebase-admin');
-const bodyParser = require('body-parser'); // For parsing JSON bodies
-const Joi = require('joi'); // For input validation
-const morgan = require('morgan'); // For logging HTTP requests
-const helmet = require('helmet'); // For securing HTTP headers
+const bodyParser = require('body-parser');
+const Joi = require('joi');
+const morgan = require('morgan');
+const helmet = require('helmet');
 const dotenv = require('dotenv');
+const http = require('http');
+const WebSocket = require('ws');
+const winston = require('winston');
+const rateLimit = require('express-rate-limit');
 
+// Load environment variables
 dotenv.config();
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+// Configure colors for log levels
+winston.addColors({
+    error: 'bold red',
+    warn: 'italic yellow',
+    info: 'green',
+    http: 'cyan',
+    debug: 'magenta',
+});
 
-// Initialize Firebase Admin SDK with the service account credentials
-const serviceAccount = process.env.RENDER === 'true'
-    ? '/etc/secrets/serviceAccountKey.json'
-    : process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+// Configure Winston logger with colors
+const logger = winston.createLogger({
+    level: 'info',
+    levels: winston.config.npm.levels,
+    format: winston.format.combine(
+        winston.format.colorize(),  // Apply colors to log levels
+        winston.format.timestamp(),
+        winston.format.printf(({ timestamp, level, message, ...metadata }) => {
+            let msg = `${timestamp} [${level}]: ${message} `;
+            if (metadata) {
+                msg += JSON.stringify(metadata);
+            }
+            return msg;
+        })
+    ),
+    transports: [
+        new winston.transports.Console(),
+    ]
+});
 
+// Initialize Firebase Admin SDK
+const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL,
 });
 
-// Reference to Firebase Realtime Database
+// Get reference to Firebase Realtime Database
 const db = admin.database();
 const sensorDataRef = db.ref('Trash-Bins');
 
-// Middleware for security and logging
-app.use(helmet());
-app.use(morgan('combined'));
-app.use(bodyParser.json());
+// Initialize Express app
+const app = express();
 
-// Validation schema for sensor distance data
+// Apply middleware
+app.use(helmet());  // Enhance API security
+app.use(bodyParser.json());  // Parse JSON request bodies
+app.use(morgan('combined'));  // HTTP request logging
+
+// Configure rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
+
+// Define Joi validation schemas
 const distanceSchema = Joi.object({
+    type: Joi.string().valid('distance').required(), // Add this line
     id: Joi.number().required(),
     distance: Joi.number().required(),
     location: Joi.string().required(),
+    microProcessor_status: Joi.string().required(),
+    sensor_status: Joi.string().required(),
+    binLid_status: Joi.string().required()
 });
 
-// Validation schema for bin metadata
-const metadataSchema = Joi.object({
+const binSchema = Joi.object({
     id: Joi.number().required(),
     location: Joi.string().required(),
     binColor: Joi.string().required(),
-    geoLocation: Joi.string().optional().allow(''), // Allow empty string for geoLocation
+    geoLocation: Joi.string().optional().allow('')
 });
 
-// Helper function to capitalize the first letter of a string
-const capitalizeFirstLetter = (string) => {
-    return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
-};
-
-// Endpoint to receive distance data from MicroPython
-app.post('/sensor-distance', async (req, res) => {
-    const { error } = distanceSchema.validate(req.body);
+// Endpoint to create bin
+app.post('/create-bin', async (req, res) => {
+    // Validate incoming data
+    const { error } = binSchema.validate(req.body);
     if (error) {
-        console.error('Validation error:', error.details);
-        return res.status(400).send('Invalid data format or missing required fields');
-    }
-
-    const { id, distance, location } = req.body;
-    const capitalizedLocation = capitalizeFirstLetter(location);
-    console.log(`Received distance: ${distance} cm for location: ${capitalizedLocation}`);
-
-    const binRef = sensorDataRef.child(`${capitalizedLocation}/Bin-${id}`);
-    const now = new Date();
-    const formattedDate = now.toLocaleString();
-
-    try {
-        const existingDataSnapshot = await binRef.once('value');
-        const existingData = existingDataSnapshot.val() || {};
-
-        const dataToSave = {
-            ...existingData,
-            distance,
-            status: distance > 50 ? "ON" : "OFF",
-            lastUpdated: formattedDate,
-            location: capitalizedLocation,
-        };
-
-        await binRef.set(dataToSave);
-        console.log('Distance data saved to Firebase:', dataToSave);
-        res.status(200).send('Distance data received and saved to Firebase');
-    } catch (error) {
-        console.error('Error saving distance to Firebase:', error);
-        res.status(500).send('Failed to save distance data to Firebase');
-    }
-});
-
-// Endpoint to receive bin metadata
-app.post('/bin-metadata', async (req, res) => {
-    const { error } = metadataSchema.validate(req.body);
-    if (error) {
-        console.error('Validation error:', error.details);
-        return res.status(400).send('Invalid data format or missing required fields');
+        logger.error('Validation error:', error.details);
+        return res.status(400).json({ error: 'Invalid data format or missing required fields' });
     }
 
     const { id, location, binColor, geoLocation } = req.body;
-    const capitalizedLocation = capitalizeFirstLetter(location);
-    console.log(`Received metadata for location: ${capitalizedLocation}`);
+    logger.info(`Received metadata for location: ${location}`);
 
-    const binRef = sensorDataRef.child(`${capitalizedLocation}/Bin-${id}`);
+    const binRef = sensorDataRef.child(`${location}/Bin-${id}`);
 
     try {
         // Fetch existing distance data if it exists
-        const distanceSnapshot = await sensorDataRef.child(`${capitalizedLocation}/Bin-${id}`).once('value');
+        const distanceSnapshot = await binRef.once('value');
         const distanceData = distanceSnapshot.val();
 
         const dataToSave = {
             _id: id,
-            location: capitalizedLocation,
+            location: location,
             binColor,
-            geoLocation: geoLocation || null, // Allow geoLocation to be null if not provided
+            geoLocation: geoLocation || null,
             distance: distanceData ? distanceData.distance : 0,
-            status: distanceData ? distanceData.status : "OFF",
-            lastUpdated: distanceData && distanceData.lastUpdated ? distanceData.lastUpdated : new Date().toLocaleString(), // Set current timestamp if lastUpdated is undefined
+            microProcessor_status: distanceData ? distanceData.microProcessor_status : "OFF",
+            sensor_status: distanceData ? distanceData.sensor_status : "OFF",
+            binLid_status: distanceData ? distanceData.binLid_status : "CLOSE",
+            lastUpdated: distanceData && distanceData.lastUpdated ? distanceData.lastUpdated : new Date().toLocaleString(),
         };
 
+        // Save data to Firebase
         await binRef.set(dataToSave);
-        console.log('Metadata saved to Firebase:', dataToSave);
-        res.status(200).send('Bin metadata received and saved to Firebase');
+        logger.info('Metadata saved to Firebase:', dataToSave);
+        res.status(200).json({ message: 'Bin metadata received and saved to Firebase' });
     } catch (error) {
-        console.error('Error saving metadata to Firebase:', error);
-        res.status(500).send('Failed to save bin metadata to Firebase');
+        logger.error('Error saving metadata to Firebase:', error);
+        res.status(500).json({ error: 'Failed to save bin metadata to Firebase' });
     }
 });
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+// Set up WebSocket server
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+wss.on('connection', (ws) => {
+    logger.info('New WebSocket connection established');
+
+    ws.on('message', async (message) => {
+        try {
+            const data = JSON.parse(message);
+
+            // Route messages based on their type
+            switch (data.type) {
+                case 'distance':
+                    await handleDistanceMessage(ws, data);
+                    break;
+                default:
+                    ws.send(JSON.stringify({ error: 'Unknown message type' }));
+                    logger.warn(`Received unknown message type: ${data.type}`);
+                    break;
+            }
+        } catch (e) {
+            logger.error('Error processing WebSocket message:', e);
+            ws.send(JSON.stringify({ error: 'Invalid data format' }));
+        }
+    });
+
+    ws.on('close', () => {
+        logger.info('WebSocket connection closed');
+    });
 });
+
+// Handle distance update messages
+async function handleDistanceMessage(ws, data) {
+    // Log the received message for debugging
+    logger.info('Received distance message:', data);
+
+    // Validate incoming data using the distanceSchema
+    const { error } = distanceSchema.validate(data);
+    if (error) {
+        logger.error('Invalid distance data:', error.details);
+        ws.send(JSON.stringify({ error: 'Invalid distance data', details: error.details }));
+        return;
+    }
+
+    const { id, distance, location, sensor_status, microProcessor_status, binLid_status } = data;
+    const binRef = sensorDataRef.child(`${location}/Bin-${id}`);
+    const now = new Date();
+    const formattedDate = now.toLocaleString();
+
+    try {
+        // Check if existing data for the given id and location exists
+        const existingDataSnapshot = await binRef.once('value');
+        const existingData = existingDataSnapshot.val();
+
+        if (!existingData) {
+            // Send error message if the id and location do not exist
+            logger.error(`No existing data found for Bin-${id} at ${location}`);
+            ws.send(JSON.stringify({ error: 'No existing data found for this bin' }));
+            return;
+        }
+
+        // Proceed to save new data
+        const dataToSave = {
+            ...existingData,
+            distance,
+            microProcessor_status,
+            sensor_status,
+            binLid_status,
+            lastUpdated: formattedDate
+        };
+
+        await binRef.set(dataToSave);
+        ws.send(JSON.stringify({ status: 'distance_updated' }));
+        logger.info(`Distance updated for Bin-${id} at ${location}: ${distance} cm`);
+    } catch (error) {
+        logger.error(`Error updating distance for Bin-${id}:`, error);
+        ws.send(JSON.stringify({ error: 'Failed to update distance' }));
+    }
+}
+
+// Global error handling middleware
+app.use((err, req, res, next) => {
+    logger.error('Unhandled error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    logger.info('Server running on:', {
+        HTTP: `http Post Request://localhost:${PORT}/create-bin`,
+        Web_Socket: `ws://localhost:${PORT}`
+    });
+});
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+    logger.info('SIGTERM signal received. Closing HTTP server.');
+    server.close(() => {
+        logger.info('HTTP server closed.');
+        process.exit(0);
+    });
+});
+
