@@ -43,8 +43,18 @@ const logger = winston.createLogger({
     ]
 });
 
+// Determine if running locally or in Render
+let serviceAccount;
+try {
+    serviceAccount = process.env.RENDER === 'true'
+        ? '/etc/secrets/serviceAccountKey.json' // Path for Render
+        : process.env.FIREBASE_SERVICE_ACCOUNT_KEY; // Path for local
+} catch (error) {
+    console.error("Error parsing Firebase service account key:", error);
+    process.exit(1); // Exit if there's an error
+}
+
 // Initialize Firebase Admin SDK
-const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL,
