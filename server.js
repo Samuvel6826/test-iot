@@ -71,11 +71,11 @@ app.use(bodyParser.json());  // Parse JSON request bodies
 app.use(morgan('combined'));  // HTTP request logging
 
 // Configure rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100 // limit each IP to 100 requests per windowMs
-});
-app.use(limiter);
+// const limiter = rateLimit({
+//     windowMs: 15 * 60 * 1000, // 15 minutes
+//     max: 100 // limit each IP to 100 requests per windowMs
+// });
+// app.use(limiter);
 
 // Define Joi validation schemas
 const distanceSchema = Joi.object({
