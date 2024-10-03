@@ -7,7 +7,6 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 const http = require('http');
-const WebSocket = require('ws');
 const winston = require('winston');
 const rateLimit = require('express-rate-limit');
 
@@ -133,51 +132,15 @@ app.post('/create-bin', async (req, res) => {
     }
 });
 
-// Set up WebSocket server
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-// Define the WebSocket endpoint
-const WS_PATH = '/ws';
-
-wss.on('connection', (ws) => {
-    logger.info('New WebSocket connection established');
-
-    ws.on('message', async (message) => {
-        try {
-            const data = JSON.parse(message);
-            switch (data.type) {
-                case 'distance':
-                    await handleDistanceMessage(ws, data);
-                    break;
-                default:
-                    logger.warn(`Received unknown message type: ${data.type}`);
-                    ws.send(JSON.stringify({ error: 'Unknown message type' }));
-                    break;
-            }
-        } catch (e) {
-            logger.error('Error processing WebSocket message:', e);
-            ws.send(JSON.stringify({ error: 'Invalid data format' }));
-        }
-    });
-
-    ws.on('close', () => {
-        logger.info('WebSocket connection closed');
-    });
-});
-
-// Handle distance update messages
-async function handleDistanceMessage(ws, data) {
-    logger.info('Received distance message:', data);
-
-    const { error } = distanceSchema.validate(data);
+// HTTP POST endpoint to handle distance updates
+app.post('/sensor-distance', async (req, res) => {
+    const { error } = distanceSchema.validate(req.body);
     if (error) {
         logger.error('Invalid distance data:', error.details);
-        ws.send(JSON.stringify({ error: 'Invalid distance data', details: error.details }));
-        return;
+        return res.status(400).json({ error: 'Invalid distance data', details: error.details });
     }
 
-    const { id, distance, location, sensor_status, microProcessor_status, binLid_status } = data;
+    const { id, distance, location, sensor_status, microProcessor_status, binLid_status } = req.body;
     const binRef = sensorDataRef.child(`${location}/Bin-${id}`);
     const now = new Date();
     const formattedDate = now.toLocaleString();
@@ -188,8 +151,7 @@ async function handleDistanceMessage(ws, data) {
 
         if (!existingData) {
             logger.error(`No existing data found for Bin-${id} at ${location}`);
-            ws.send(JSON.stringify({ error: 'No existing data found for this bin' }));
-            return;
+            return res.status(404).json({ error: 'No existing data found for this bin' });
         }
 
         const dataToSave = {
@@ -202,13 +164,13 @@ async function handleDistanceMessage(ws, data) {
         };
 
         await binRef.set(dataToSave);
-        ws.send(JSON.stringify({ status: 'distance_updated' }));
         logger.info(`Distance updated for Bin-${id} at ${location}: ${distance} cm`);
+        res.status(200).json({ message: 'Distance updated successfully' });
     } catch (error) {
         logger.error(`Error updating distance for Bin-${id}:`, error);
-        ws.send(JSON.stringify({ error: 'Failed to update distance' }));
+        res.status(500).json({ error: 'Failed to update distance' });
     }
-}
+});
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
@@ -218,18 +180,6 @@ app.use((err, req, res, next) => {
 
 // Start the server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    logger.info(`Server running on:`, {
-        HTTP: `http://localhost:${PORT}/create-bin`,
-        Web_Socket: `ws://localhost:${PORT}${WS_PATH}`
-    });
-});
-
-// Handle graceful shutdown
-process.on('SIGTERM', () => {
-    logger.info('SIGTERM signal received. Closing HTTP server.');
-    server.close(() => {
-        logger.info('HTTP server closed.');
-        process.exit(0);
-    });
+app.listen(PORT, () => {
+    logger.info(`Server running on http://localhost:${PORT}`);
 });
