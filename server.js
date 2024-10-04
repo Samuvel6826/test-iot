@@ -75,7 +75,7 @@ app.use(morgan('combined'));  // HTTP request logging
 // Define user-friendly rate limit configurations
 const rateLimits = {
     createBin: { requests: 25, timeFrame: 15 }, // requests per timeFrame in minutes
-    sensorDistance: { requests: 100, timeFrame: 10 },
+    sensorDistance: { requests: 1000, timeFrame: 10 },
 };
 
 // Define rate limiters for different endpoints
@@ -168,7 +168,7 @@ app.post('/create-bin', createBinLimiter, async (req, res) => {
     }
 });
 
-// HTTP POST endpoint to handle distance updates
+// HTTP POST endpoint to handle distance updates with a 15-second timeout
 app.post('/sensor-distance', sensorDistanceLimiter, async (req, res) => {
     const { error } = distanceSchema.validate(req.body);
     if (error) {
@@ -179,11 +179,35 @@ app.post('/sensor-distance', sensorDistanceLimiter, async (req, res) => {
     const { id, distance, filledBinPercentage, binLocation, geoLocation, sensorStatus, microProcessorStatus, binLidStatus, maxBinCapacity } = req.body; // Changed to camelCase
     const binRef = sensorDataRef.child(`${binLocation}/Bin-${id}`);
 
+    // 15-second timeout for checking if no response is received
+    let timeoutTriggered = false;
+    const timeout = setTimeout(async () => {
+        try {
+            timeoutTriggered = true;
+            const existingDataSnapshot = await binRef.once('value');
+            const existingData = existingDataSnapshot.val();
+
+            if (existingData) {
+                const dataToSave = {
+                    ...existingData,
+                    microProcessorStatus: "OFF", // Set microProcessorStatus to OFF
+                    lastUpdated: getFormattedDate(),
+                };
+
+                await binRef.set(dataToSave);
+                logger.warn(`No response for Bin-${id} at ${binLocation} within 15 seconds. Microprocessor set to OFF.`);
+            }
+        } catch (error) {
+            logger.error(`Error updating microProcessorStatus for Bin-${id}:`, error);
+        }
+    }, 15000); // 15 seconds in milliseconds
+
     try {
         const existingDataSnapshot = await binRef.once('value');
         const existingData = existingDataSnapshot.val();
 
         if (!existingData) {
+            clearTimeout(timeout); // Clear timeout since no existing data found
             logger.error(`No existing data found for Bin-${id} at ${binLocation}`);
             return res.status(404).json({ error: 'No existing data found for this bin' });
         }
@@ -202,8 +226,13 @@ app.post('/sensor-distance', sensorDistanceLimiter, async (req, res) => {
 
         await binRef.set(dataToSave);
         logger.info(`Distance updated for Bin-${id} at ${binLocation}: ${distance} cm`);
-        res.status(200).json({ message: 'Distance updated successfully' });
+
+        if (!timeoutTriggered) {
+            clearTimeout(timeout); // Clear the timeout if request is processed successfully before 15 seconds
+            res.status(200).json({ message: 'Distance updated successfully' });
+        }
     } catch (error) {
+        clearTimeout(timeout); // Clear the timeout on error
         logger.error(`Error updating distance for Bin-${id}:`, error);
         res.status(500).json({ error: 'Failed to update distance' });
     }
