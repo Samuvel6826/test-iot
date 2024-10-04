@@ -73,23 +73,23 @@ app.use(bodyParser.json());  // Parse JSON request bodies
 app.use(morgan('combined'));  // HTTP request logging
 
 // Define user-friendly rate limit configurations
-const rateLimits = {
-    createBin: { requests: 25, timeFrame: 15 }, // requests per timeFrame in minutes
-    sensorDistance: { requests: 1000, timeFrame: 10 },
-};
+// const rateLimits = {
+//     createBin: { requests: 25, timeFrame: 15 }, // requests per timeFrame in minutes
+//     sensorDistance: { requests: 1000, timeFrame: 10 },
+// };
 
-// Define rate limiters for different endpoints
-const createBinLimiter = rateLimit({
-    windowMs: rateLimits.createBin.timeFrame * 60 * 1000, // Convert minutes to milliseconds
-    max: rateLimits.createBin.requests,
-    message: `Too many requests from this IP, please try again after ${rateLimits.createBin.timeFrame} minute(s).`
-});
+// // Define rate limiters for different endpoints
+// const createBinLimiter = rateLimit({
+//     windowMs: rateLimits.createBin.timeFrame * 60 * 1000, // Convert minutes to milliseconds
+//     max: rateLimits.createBin.requests,
+//     message: `Too many requests from this IP, please try again after ${rateLimits.createBin.timeFrame} minute(s).`
+// });
 
-const sensorDistanceLimiter = rateLimit({
-    windowMs: rateLimits.sensorDistance.timeFrame * 60 * 1000,
-    max: rateLimits.sensorDistance.requests,
-    message: `Too many requests from this IP, please try again after ${rateLimits.sensorDistance.timeFrame} minute(s).`
-});
+// const sensorDistanceLimiter = rateLimit({
+//     windowMs: rateLimits.sensorDistance.timeFrame * 60 * 1000,
+//     max: rateLimits.sensorDistance.requests,
+//     message: `Too many requests from this IP, please try again after ${rateLimits.sensorDistance.timeFrame} minute(s).`
+// });
 
 // Utility function for formatted date
 const getFormattedDate = () => {
@@ -125,7 +125,7 @@ const distanceSchema = Joi.object({
 });
 
 // Endpoint to create bin
-app.post('/create-bin', createBinLimiter, async (req, res) => {
+app.post('/create-bin', async (req, res) => {
     const { error } = binMetaDataSchema.validate(req.body);
 
     if (error) {
@@ -169,7 +169,7 @@ app.post('/create-bin', createBinLimiter, async (req, res) => {
 });
 
 // HTTP POST endpoint to handle distance updates with a 15-second timeout
-app.post('/sensor-distance', sensorDistanceLimiter, async (req, res) => {
+app.post('/sensor-distance', async (req, res) => {
     const { error } = distanceSchema.validate(req.body);
     if (error) {
         logger.error('Invalid distance data:', error.details);
