@@ -46,7 +46,11 @@ const sensorDataRef = firebaseDB.ref('Trash-Bins');
 const app = express();
 
 // Parse the CORS_ORIGINS from the environment variable
-const allowedOrigins = process.env.CORS_ORIGINS.split(',');
+const corsOrigins = process.env.CORS_ORIGINS;
+const allowedOrigins = corsOrigins ? corsOrigins.split(',') : []; // Fallback to an empty array
+
+// Log the allowed origins for debugging
+logger.info("CORS_ORIGINS:", process.env.CORS_ORIGINS);
 
 // Apply CORS middleware with dynamic origin check
 app.use(cors({
