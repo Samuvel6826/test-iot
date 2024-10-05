@@ -10,6 +10,20 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { logger } = require('./logger');
 
+
+const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc'); // Correct import for UTC
+const timezone = require('dayjs/plugin/timezone'); // Correct import for timezone
+
+// Extend dayjs with the necessary plugins
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const getFormattedDate = () => {
+    // Use Asia/Kolkata timezone and format the output
+    return dayjs().tz('Asia/Kolkata').format('DD/MM/YYYY, hh:mm:ss A').toUpperCase();
+};
+
 // Load environment variables
 dotenv.config();
 
@@ -105,23 +119,6 @@ const MONITORING_CONFIG = {
 
 // Store for tracking last updates from both endpoints
 const deviceStatusTracker = new Map();
-
-// Utility function for formatted date
-const getFormattedDate = () => {
-    const formattedDate = new Intl.DateTimeFormat('en-GB', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        timeZone: 'Asia/Kolkata', // Specify your local time zone
-        hour12: true, // Set 12-hour format
-    }).format(new Date());
-
-    // Replace lowercase "am" and "pm" with uppercase "AM" and "PM"
-    return formattedDate.replace('am', 'AM').replace('pm', 'PM');
-};
 
 // Utility function to update device status
 const updateDeviceStatus = (binLocation, binId, type) => {
