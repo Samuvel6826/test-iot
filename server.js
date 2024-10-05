@@ -10,7 +10,6 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { logger } = require('./logger');
 
-
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc'); // Correct import for UTC
 const timezone = require('dayjs/plugin/timezone'); // Correct import for timezone
@@ -61,6 +60,9 @@ const sensorDataRef = firebaseDB.ref('Trash-Bins');
 
 // Initialize Express app
 const app = express();
+
+// Enable trust proxy
+app.set('trust proxy', 1);  // '1' indicates trusting the first proxy (suitable for single proxy setups)
 
 // Parse the CORS_ORIGINS from the environment variable
 const corsOrigins = process.env.CORS_ORIGINS.split(',').map(origin => origin.trim());
