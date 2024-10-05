@@ -200,7 +200,7 @@ const binMetaDataSchema = Joi.object({
     geoLocation: Joi.object({
         latitude: Joi.string().allow('').default("latitude"),
         longitude: Joi.string().allow('').default("longitude"),
-    }).required(), // Ensure geoLocation is required
+    }),
     microProcessorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     sensorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').default('CLOSED'),
@@ -216,7 +216,7 @@ const distanceSchema = Joi.object({
     geoLocation: Joi.object({
         latitude: Joi.string().allow('').default("latitude"),
         longitude: Joi.string().allow('').default("longitude"),
-    }).required(), // Ensure geoLocation is required
+    }),
     microProcessorStatus: Joi.string().valid('ON', 'OFF').required(),
     sensorStatus: Joi.string().valid('ON', 'OFF').required(),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').required(), // Corrected to 'CLOSED'
