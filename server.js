@@ -193,7 +193,6 @@ const cleanupTracker = () => {
     }
 };
 
-// Define Joi validation schemas
 const binMetaDataSchema = Joi.object({
     id: Joi.number().required(),
     binLocation: Joi.string().required(),
@@ -201,7 +200,7 @@ const binMetaDataSchema = Joi.object({
     geoLocation: Joi.object({
         latitude: Joi.string().allow('').default("latitude"),
         longitude: Joi.string().allow('').default("longitude"),
-    }).string().allow(""),
+    }).required(), // Ensure geoLocation is required
     microProcessorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     sensorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').default('CLOSED'),
@@ -217,10 +216,10 @@ const distanceSchema = Joi.object({
     geoLocation: Joi.object({
         latitude: Joi.string().allow('').default("latitude"),
         longitude: Joi.string().allow('').default("longitude"),
-    }).string().allow(""),
+    }).required(), // Ensure geoLocation is required
     microProcessorStatus: Joi.string().valid('ON', 'OFF').required(),
     sensorStatus: Joi.string().valid('ON', 'OFF').required(),
-    binLidStatus: Joi.string().valid('OPEN', 'CLOSE').required(),
+    binLidStatus: Joi.string().valid('OPEN', 'CLOSED').required(), // Corrected to 'CLOSED'
     distance: Joi.number().required(),
     filledBinPercentage: Joi.number().min(0).max(100).required(),
     maxBinCapacity: Joi.number().min(0).required()
