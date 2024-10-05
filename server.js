@@ -155,26 +155,34 @@ const checkDeviceStatus = async () => {
             status.isOnline = false;
 
             try {
-                // First, get the current data
                 const binRef = sensorDataRef.child(`${binLocation}/Bin-${binId}`);
                 const snapshot = await binRef.once('value');
                 const currentData = snapshot.val();
 
                 if (currentData) {
-                    // Only update specific fields
-                    const update = {
-                        microProcessorStatus: 'OFF',
-                        lastUpdated: getFormattedDate(),
-                        // Ensure sensor status is also off when microprocessor is off
-                        sensorStatus: 'OFF'
-                    };
-
-                    await binRef.update(update);
-                    logger.info(`Bin-${binId} at ${binLocation} marked as offline`);
+                    // Collect updates for batch processing
+                    updates.push({
+                        ref: binRef,
+                        update: {
+                            microProcessorStatus: 'OFF',
+                            lastUpdated: getFormattedDate(),
+                            sensorStatus: 'OFF',
+                        }
+                    });
                 }
             } catch (error) {
                 logger.error(`Error updating offline status for Bin-${binId} at ${binLocation}:`, error);
             }
+        }
+    }
+
+    // Perform batch updates
+    for (const { ref, update } of updates) {
+        try {
+            await ref.update(update);
+            logger.info(`Successfully updated bin status in batch operation.`);
+        } catch (error) {
+            logger.error(`Error in batch update:`, error);
         }
     }
 };
@@ -326,8 +334,8 @@ setInterval(cleanupTracker, MONITORING_CONFIG.cleanupInterval);
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
-    logger.error('Unhandled error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Unhandled Error:', err);
+    res.status(500).json({ message: 'Internal server error', details: err.message });
 });
 
 // Start the server
