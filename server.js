@@ -14,7 +14,7 @@ const { logger } = require('./logger');
 dotenv.config();
 
 // Check required environment variables
-const requiredEnvVars = ['FIREBASE_DATABASE_URL', 'CORS_ORIGINS', 'FIREBASE_SERVICE_ACCOUNT_KEY'];
+const requiredEnvVars = ['FIREBASE_DATABASE_URL', 'CORS_ORIGINS'];
 for (const envVar of requiredEnvVars) {
     if (!process.env[envVar]) {
         logger.error(`${envVar} is not set in the environment variables.`);
