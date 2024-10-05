@@ -225,6 +225,7 @@ const distanceSchema = Joi.object({
     microProcessorStatus: Joi.string().valid('ON', 'OFF').required(),
     sensorStatus: Joi.string().valid('ON', 'OFF').required(),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').required(), // Corrected to 'CLOSED'
+    binStatus: Joi.string().valid('active', 'inActive').default('Active'),
     distance: Joi.number().required(),
     filledBinPercentage: Joi.number().min(0).max(100).required(),
     maxBinCapacity: Joi.number().min(0).required()
