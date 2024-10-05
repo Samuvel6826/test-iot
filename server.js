@@ -8,26 +8,29 @@ const helmet = require('helmet');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const { logger } = require('./logger'); // Import the logger
+const { logger } = require('./logger');
 
 // Load environment variables
 dotenv.config();
 
 // Check required environment variables
-if (!process.env.FIREBASE_DATABASE_URL) {
-    logger.error("FIREBASE_DATABASE_URL is not set in the environment variables.");
-    process.exit(1);
+const requiredEnvVars = ['FIREBASE_DATABASE_URL', 'CORS_ORIGINS', 'FIREBASE_SERVICE_ACCOUNT_KEY'];
+for (const envVar of requiredEnvVars) {
+    if (!process.env[envVar]) {
+        logger.error(`${envVar} is not set in the environment variables.`);
+        process.exit(1);
+    }
 }
 
 // Initialize Firebase Admin SDK
 let serviceAccount;
 try {
     serviceAccount = process.env.RENDER === 'true'
-        ? '/etc/secrets/serviceAccountKey.json' // Path for Render
-        : process.env.FIREBASE_SERVICE_ACCOUNT_KEY; // Ensure proper parsing of JSON
+        ? require('/etc/secrets/serviceAccountKey.json')
+        : process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 } catch (error) {
     logger.error("Error parsing Firebase service account key:", error);
-    process.exit(1); // Exit if there's an error
+    process.exit(1);
 }
 
 admin.initializeApp({
@@ -46,117 +49,203 @@ const sensorDataRef = firebaseDB.ref('Trash-Bins');
 const app = express();
 
 // Parse the CORS_ORIGINS from the environment variable
-const corsOrigins = process.env.CORS_ORIGINS;
-const allowedOrigins = corsOrigins ? corsOrigins.split(',') : []; // Fallback to an empty array
+const corsOrigins = process.env.CORS_ORIGINS.split(',').map(origin => origin.trim());
 
 // Log the allowed origins for debugging
-logger.info("CORS_ORIGINS:", process.env.CORS_ORIGINS);
+logger.info("CORS_ORIGINS:", corsOrigins);
 
 // Apply CORS middleware with dynamic origin check
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-
-        // Check if the origin is in the allowed origins list
-        if (allowedOrigins.includes(origin)) {
-            return callback(null, true); // Origin is allowed
+        if (!origin || corsOrigins.includes(origin)) {
+            callback(null, true);
         } else {
-            return callback(new Error('Not allowed by CORS')); // Deny the request
+            callback(new Error('Not allowed by CORS'));
         }
     },
 }));
 
 // Apply middleware
-app.use(helmet());  // Enhance API security
-app.use(bodyParser.json());  // Parse JSON request bodies
-app.use(morgan('combined'));  // HTTP request logging
+app.use(helmet());
+app.use(bodyParser.json());
+app.use(morgan('combined'));
 
 // Define user-friendly rate limit configurations
-// const rateLimits = {
-//     createBin: { requests: 25, timeFrame: 15 }, // requests per timeFrame in minutes
-//     sensorDistance: { requests: 1000, timeFrame: 10 },
-// };
+const rateLimits = {
+    createBin: { requests: 25, timeFrame: 15 },
+    sensorDistance: { requests: 1000, timeFrame: 10 },
+    heartbeat: { requests: 2000, timeFrame: 10 },
+};
 
-// // Define rate limiters for different endpoints
-// const createBinLimiter = rateLimit({
-//     windowMs: rateLimits.createBin.timeFrame * 60 * 1000, // Convert minutes to milliseconds
-//     max: rateLimits.createBin.requests,
-//     message: `Too many requests from this IP, please try again after ${rateLimits.createBin.timeFrame} minute(s).`
-// });
+// Define rate limiters for different endpoints
+const createBinLimiter = rateLimit({
+    windowMs: rateLimits.createBin.timeFrame * 60 * 1000,
+    max: rateLimits.createBin.requests,
+    message: `Too many requests from this IP, please try again after ${rateLimits.createBin.timeFrame} minute(s).`
+});
 
-// const sensorDistanceLimiter = rateLimit({
-//     windowMs: rateLimits.sensorDistance.timeFrame * 60 * 1000,
-//     max: rateLimits.sensorDistance.requests,
-//     message: `Too many requests from this IP, please try again after ${rateLimits.sensorDistance.timeFrame} minute(s).`
-// });
+const sensorDistanceLimiter = rateLimit({
+    windowMs: rateLimits.sensorDistance.timeFrame * 60 * 1000,
+    max: rateLimits.sensorDistance.requests,
+    message: `Too many requests from this IP, please try again after ${rateLimits.sensorDistance.timeFrame} minute(s).`
+});
+
+const heartbeatLimiter = rateLimit({
+    windowMs: rateLimits.heartbeat.timeFrame * 60 * 1000,
+    max: rateLimits.heartbeat.requests,
+    message: `Too many heartbeat requests from this IP, please try again after ${rateLimits.heartbeat.timeFrame} minute(s).`
+});
+
+// Enhanced monitoring configuration
+const MONITORING_CONFIG = {
+    checkInterval: 10000,    // Check every 10 seconds
+    offlineThreshold: 20000, // Mark as offline after 20 seconds
+    cleanupInterval: 3600000 // Cleanup old timestamps every hour
+};
+
+// Store for tracking last updates from both endpoints
+const deviceStatusTracker = new Map();
 
 // Utility function for formatted date
 const getFormattedDate = () => {
-    return new Date().toLocaleString(); // Format as needed
+    const formattedDate = new Intl.DateTimeFormat('en-GB', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'Asia/Kolkata', // Specify your local time zone
+        hour12: true, // Set 12-hour format
+    }).format(new Date());
+
+    // Replace lowercase "am" and "pm" with uppercase "AM" and "PM"
+    return formattedDate.replace('am', 'AM').replace('pm', 'PM');
 };
 
-// Define a Joi validation schema for the bin
-const binMetaDataSchema = Joi.object({
-    id: Joi.number().required(),  // Changed from _id to id
-    binLocation: Joi.string().required(),
-    binType: Joi.string().required(),
-    geoLocation: Joi.string().optional().allow('').default("latitude,longitude"),
-    microProcessorStatus: Joi.string().optional().default('OFF'), // Changed to camelCase
-    sensorStatus: Joi.string().optional().default('OFF'), // Changed to camelCase
-    binLidStatus: Joi.string().optional().default('CLOSE'), // Changed to camelCase
-    binStatus: Joi.string().optional().default('inActive'), // Changed to camelCase
-    distance: Joi.number().optional().default(0),
-    filledBinPercentage: Joi.number().optional().default(0), // Optional, may need to be set later
-    maxBinCapacity: Joi.number().optional().default(0) // Optional, may need to be set later
-});
+// Utility function to update device status
+const updateDeviceStatus = (binLocation, binId, type) => {
+    const deviceKey = `${binLocation}-${binId}`;
+    const now = Date.now();
+
+    if (!deviceStatusTracker.has(deviceKey)) {
+        deviceStatusTracker.set(deviceKey, {
+            lastHeartbeat: 0,
+            lastSensorDistance: 0,
+            isOnline: false
+        });
+    }
+
+    const status = deviceStatusTracker.get(deviceKey);
+    if (type === 'heartbeat') {
+        status.lastHeartbeat = now;
+    } else if (type === 'sensor-distance') {
+        status.lastSensorDistance = now;
+    }
+    status.isOnline = true;
+};
+
+// Function to check device status
+const checkDeviceStatus = async () => {
+    const now = Date.now();
+    const updates = [];
+
+    for (const [deviceKey, status] of deviceStatusTracker) {
+        const [binLocation, binId] = deviceKey.split('-');
+        const lastUpdate = Math.max(status.lastHeartbeat, status.lastSensorDistance);
+
+        if (status.isOnline && (now - lastUpdate) > MONITORING_CONFIG.offlineThreshold) {
+            status.isOnline = false;
+
+            try {
+                // First, get the current data
+                const binRef = sensorDataRef.child(`${binLocation}/Bin-${binId}`);
+                const snapshot = await binRef.once('value');
+                const currentData = snapshot.val();
+
+                if (currentData) {
+                    // Only update specific fields
+                    const update = {
+                        microProcessorStatus: 'OFF',
+                        lastUpdated: getFormattedDate(),
+                        // Ensure sensor status is also off when microprocessor is off
+                        sensorStatus: 'OFF'
+                    };
+
+                    await binRef.update(update);
+                    logger.info(`Bin-${binId} at ${binLocation} marked as offline`);
+                }
+            } catch (error) {
+                logger.error(`Error updating offline status for Bin-${binId} at ${binLocation}:`, error);
+            }
+        }
+    }
+};
+
+// Periodic cleanup of old entries
+const cleanupTracker = () => {
+    const now = Date.now();
+    for (const [deviceKey, status] of deviceStatusTracker) {
+        const lastUpdate = Math.max(status.lastHeartbeat, status.lastSensorDistance);
+        if (now - lastUpdate > MONITORING_CONFIG.cleanupInterval) {
+            deviceStatusTracker.delete(deviceKey);
+        }
+    }
+};
 
 // Define Joi validation schemas
+const binMetaDataSchema = Joi.object({
+    id: Joi.number().required(),
+    binLocation: Joi.string().required(),
+    binType: Joi.string().required(),
+    geoLocation: Joi.string().allow('').default("latitude,longitude"),
+    microProcessorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
+    sensorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
+    binLidStatus: Joi.string().valid('OPEN', 'CLOSE').default('CLOSE'),
+    binStatus: Joi.string().valid('active', 'inactive').default('inactive'),
+    distance: Joi.number().min(0).default(0),
+    filledBinPercentage: Joi.number().min(0).max(100).default(0),
+    maxBinCapacity: Joi.number().min(0).default(0)
+});
+
 const distanceSchema = Joi.object({
     id: Joi.number().required(),
     binLocation: Joi.string().required(),
-    geoLocation: Joi.string().optional().allow('').default("latitude,longitude"),
-    microProcessorStatus: Joi.string().optional().default('OFF'), // Changed to camelCase
-    sensorStatus: Joi.string().optional().default('OFF'), // Changed to camelCase
-    binLidStatus: Joi.string().optional().default('CLOSE'), // Changed to camelCase
-    distance: Joi.number().required(),
-    filledBinPercentage: Joi.number().optional().default(0), // Optional, may need to be set later
-    maxBinCapacity: Joi.number().optional().default(0) // Optional, may need to be set later
+    geoLocation: Joi.string().allow('').default("latitude,longitude"),
+    microProcessorStatus: Joi.string().valid('ON', 'OFF').required(),
+    sensorStatus: Joi.string().valid('ON', 'OFF').required(),
+    binLidStatus: Joi.string().valid('OPEN', 'CLOSE').required(),
+    distance: Joi.number().min(0).required(),
+    filledBinPercentage: Joi.number().min(0).max(100).required(),
+    maxBinCapacity: Joi.number().min(0).required()
+});
+
+const heartbeatSchema = Joi.object({
+    id: Joi.number().required(),
+    binLocation: Joi.string().required(),
+    microProcessorStatus: Joi.string().valid('ON', 'OFF').required()
 });
 
 // Endpoint to create bin
-app.post('/create-bin', async (req, res) => {
-    const { error } = binMetaDataSchema.validate(req.body);
+app.post('/create-bin', createBinLimiter, async (req, res) => {
+    const { error, value } = binMetaDataSchema.validate(req.body);
 
     if (error) {
         logger.error('Validation error:', error.details);
         return res.status(400).json({ error: 'Invalid data format or missing required fields' });
     }
 
-    const { id, binLocation, binType, geoLocation } = req.body; // Changed _id to id
+    const { id, binLocation } = value;
     logger.info(`Received metadata for location: ${binLocation}`);
 
     const binRef = sensorDataRef.child(`${binLocation}/Bin-${id}`);
 
     try {
-        const distanceSnapshot = await binRef.once('value');
-        const distanceData = distanceSnapshot.val() || {};
-
         const dataToSave = {
-            _id: id, // Changed _id to id
-            binLocation: binLocation,
-            binType: binType,
-            geoLocation: geoLocation,
-            binLidStatus: distanceData.binLidStatus || "CLOSE", // Changed to camelCase
-            distance: distanceData.distance || 0,
-            filledBinPercentage: 0, // This will be updated based on route data
-            maxBinCapacity: 0,
-            microProcessorStatus: distanceData.microProcessorStatus || "OFF", // Changed to camelCase
-            sensorStatus: distanceData.sensorStatus || "OFF", // Changed to camelCase
+            ...value,
             lastUpdated: getFormattedDate(),
             createdAt: getFormattedDate(),
             lastMaintenance: "",
-            binStatus: 'inActive',
         };
 
         await binRef.set(dataToSave);
@@ -168,75 +257,70 @@ app.post('/create-bin', async (req, res) => {
     }
 });
 
-// HTTP POST endpoint to handle distance updates with a 15-second timeout
-app.post('/sensor-distance', async (req, res) => {
-    const { error } = distanceSchema.validate(req.body);
+// HTTP POST endpoint to handle distance updates
+app.post('/sensor-distance', sensorDistanceLimiter, async (req, res) => {
+    const { error, value } = distanceSchema.validate(req.body);
     if (error) {
         logger.error('Invalid distance data:', error.details);
         return res.status(400).json({ error: 'Invalid distance data', details: error.details });
     }
 
-    const { id, distance, filledBinPercentage, binLocation, geoLocation, sensorStatus, microProcessorStatus, binLidStatus, maxBinCapacity } = req.body; // Changed to camelCase
+    const { id, binLocation } = value;
     const binRef = sensorDataRef.child(`${binLocation}/Bin-${id}`);
-
-    // 15-second timeout for checking if no response is received
-    let timeoutTriggered = false;
-    const timeout = setTimeout(async () => {
-        try {
-            timeoutTriggered = true;
-            const existingDataSnapshot = await binRef.once('value');
-            const existingData = existingDataSnapshot.val();
-
-            if (existingData) {
-                const dataToSave = {
-                    ...existingData,
-                    microProcessorStatus: "OFF", // Set microProcessorStatus to OFF
-                    lastUpdated: getFormattedDate(),
-                };
-
-                await binRef.set(dataToSave);
-                logger.warn(`No response for Bin-${id} at ${binLocation} within 15 seconds. Microprocessor set to OFF.`);
-            }
-        } catch (error) {
-            logger.error(`Error updating microProcessorStatus for Bin-${id}:`, error);
-        }
-    }, 15000); // 15 seconds in milliseconds
 
     try {
         const existingDataSnapshot = await binRef.once('value');
         const existingData = existingDataSnapshot.val();
 
         if (!existingData) {
-            clearTimeout(timeout); // Clear timeout since no existing data found
             logger.error(`No existing data found for Bin-${id} at ${binLocation}`);
             return res.status(404).json({ error: 'No existing data found for this bin' });
         }
 
         const dataToSave = {
             ...existingData,
-            distance,
-            filledBinPercentage, // Include filledBinPercentage in updates
-            geoLocation,
-            microProcessorStatus, // Changed to camelCase
-            sensorStatus, // Changed to camelCase
-            binLidStatus, // Changed to camelCase
-            maxBinCapacity,
-            lastUpdated: getFormattedDate()
+            ...value,
+            lastUpdated: getFormattedDate(),
         };
 
         await binRef.set(dataToSave);
-        logger.info(`Distance updated for Bin-${id} at ${binLocation}: ${distance} cm`);
+        updateDeviceStatus(binLocation, id, 'sensor-distance');
+        logger.info(`Data updated for Bin-${id} at ${binLocation}`);
 
-        if (!timeoutTriggered) {
-            clearTimeout(timeout); // Clear the timeout if request is processed successfully before 15 seconds
-            res.status(200).json({ message: 'Distance updated successfully' });
-        }
+        res.status(200).json({ message: 'Bin data updated successfully' });
     } catch (error) {
-        clearTimeout(timeout); // Clear the timeout on error
-        logger.error(`Error updating distance for Bin-${id}:`, error);
-        res.status(500).json({ error: 'Failed to update distance' });
+        logger.error(`Error updating data for Bin-${id}:`, error);
+        res.status(500).json({ error: 'Failed to update bin data' });
     }
 });
+
+// Heartbeat endpoint
+app.post('/sensor-heartbeat', heartbeatLimiter, async (req, res) => {
+    const { error, value } = heartbeatSchema.validate(req.body);
+    if (error) {
+        logger.error('Invalid heartbeat data:', error.details);
+        return res.status(400).json({ error: 'Invalid heartbeat data', details: error.details });
+    }
+
+    const { id, binLocation, microProcessorStatus } = value;
+    const binRef = sensorDataRef.child(`${binLocation}/Bin-${id}`);
+
+    try {
+        await binRef.update({
+            lastUpdated: getFormattedDate(),
+            microProcessorStatus
+        });
+        updateDeviceStatus(binLocation, id, 'heartbeat');
+        res.status(200).json({ message: 'Heartbeat received' });
+    } catch (error) {
+        logger.error(`Error updating heartbeat for Bin-${id}:`, error);
+        res.status(500).json({ error: 'Failed to update heartbeat' });
+    }
+});
+
+// Start monitoring intervals
+setInterval(checkDeviceStatus, MONITORING_CONFIG.checkInterval);
+setInterval(cleanupTracker, MONITORING_CONFIG.cleanupInterval);
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
