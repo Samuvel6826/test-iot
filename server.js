@@ -204,7 +204,7 @@ const binMetaDataSchema = Joi.object({
     microProcessorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     sensorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').default('CLOSED'),
-    binStatus: Joi.string().valid('active', 'inactive').default('inactive'),
+    binStatus: Joi.string().valid('active', 'inActive').default('inActive'),
     distance: Joi.number().default(0),
     filledBinPercentage: Joi.number().min(0).max(100).default(0),
     maxBinCapacity: Joi.number().min(0).default(0)
