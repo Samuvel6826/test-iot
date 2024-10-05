@@ -2,70 +2,47 @@
     "Automation": {
         "LEDs": {
             "LED-1": {
-                "state": 0,
-                "lastUpdated": "2024-09-30T12:00:00Z",
-                "location": "Main Hall"
+                "lastUpdated": "01/10/2024, 18:26:09",
+                "location": "Main Hall",
+                "state": 1
             },
             "LED-2": {
-                "state": 0,
-                "lastUpdated": "2024-09-30T12:00:00Z",
-                "location": "Corridor"
+                "lastUpdated": "01/10/2024, 18:26:09",
+                "location": "Corridor",
+                "state": 1
             },
             "LED-3": {
-                "state": 0,
-                "lastUpdated": "2024-09-30T12:00:00Z",
-                "location": "Gym Area"
+                "lastUpdated": "01/10/2024, 18:26:09",
+                "location": "Gym Area",
+                "state": 1
             },
             "LED-4": {
-                "state": 0,
-                "lastUpdated": "2024-09-30T12:00:00Z",
-                "location": "Library"
+                "lastUpdated": "",
+                "location": "Library",
+                "state": 0
             }
         }
     },
     "Trash-Bins": {
         "Canteen": {
             "Bin-1": {
-                "_id": 1,
-                "distance": 78,
-                "status": "ON",
-                "lastUpdated": "September 30, 2024, 12:00:45 PM",
-                "location": "Main Canteen Area",
-                "binColor": "Green",
-                "geoLocation": "Canteen Area, Main Campus"
-            }
-        },
-        "Gym": {
-            "Bin-1": {
-                "_id": 1,
-                "distance": 55,
-                "status": "ON",
-                "lastUpdated": "September 30, 2024, 12:00:45 PM",
-                "location": "Gym Entrance",
-                "binColor": "Yellow",
-                "geoLocation": "Gym Entrance, Main Campus"
-            }
-        },
-        "Laboratory": {
-            "Bin-1": {
-                "_id": 1,
-                "distance": 55,
-                "status": "ON",
-                "lastUpdated": "September 30, 2024, 12:00:45 PM",
-                "location": "Chemical Lab",
-                "binColor": "Red",
-                "geoLocation": "Chemical Lab, Science Building"
-            }
-        },
-        "Library": {
-            "Bin-1": {
-                "_id": 1,
-                "distance": 10,
-                "status": "OFF",
-                "lastUpdated": "September 30, 2024, 12:00:45 PM",
-                "location": "Library Entrance",
-                "binColor": "Blue",
-                "geoLocation": "Library Entrance, Main Campus"
+                "binLidStatus": "CLOSED",
+                "binLocation": "Canteen",
+                "binStatus": "Active",
+                "binType": "Plastic",
+                "createdAt": "05/10/2024, 01:14:07 PM",
+                "distance": 35,
+                "filledBinPercentage": 50,
+                "geoLocation": {
+                    "latitude": "13.0878",
+                    "longitude": "80.2785"
+                },
+                "id": 1,
+                "lastMaintenance": "",
+                "lastUpdated": "05/10/2024, 01:15:05 PM",
+                "maxBinCapacity": 50,
+                "microProcessorStatus": "OFF",
+                "sensorStatus": "OFF"
             }
         }
     }

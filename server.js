@@ -211,7 +211,7 @@ const binMetaDataSchema = Joi.object({
     microProcessorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     sensorStatus: Joi.string().valid('ON', 'OFF').default('OFF'),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').default('CLOSED'),
-    binStatus: Joi.string().valid('active', 'inActive').default('inActive'),
+    binActiveStatus: Joi.string().valid('active', 'inActive').default('inActive'),
     distance: Joi.number().default(0),
     filledBinPercentage: Joi.number().min(0).max(100).default(0),
     maxBinCapacity: Joi.number().min(0).default(0)
@@ -227,7 +227,7 @@ const distanceSchema = Joi.object({
     microProcessorStatus: Joi.string().valid('ON', 'OFF').required(),
     sensorStatus: Joi.string().valid('ON', 'OFF').required(),
     binLidStatus: Joi.string().valid('OPEN', 'CLOSED').required(), // Corrected to 'CLOSED'
-    binStatus: Joi.string().valid('active', 'inActive').default('Active'),
+    binActiveStatus: Joi.string().valid('active', 'inActive').default('Active'),
     distance: Joi.number().required(),
     filledBinPercentage: Joi.number().min(0).max(100).required(),
     maxBinCapacity: Joi.number().min(0).required()
